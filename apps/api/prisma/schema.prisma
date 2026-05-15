@@ -3,7 +3,7 @@
 
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["postgresqlExtensions", "fullTextSearchPostgres"]
+  previewFeatures = ["postgresqlExtensions", "fullTextSearch"]
 }
 
 datasource db {

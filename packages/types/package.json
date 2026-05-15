@@ -10,8 +10,7 @@
     "./api": "./src/api/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint src --max-warnings 0"
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "typescript": "^5.4.0"

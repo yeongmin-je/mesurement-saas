@@ -8,7 +8,7 @@ import {
   Image,
   Alert,
 } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Camera, requestCameraPermissionsAsync, getCameraPermissionsAsync } from 'expo-camera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -47,16 +47,26 @@ interface RecognitionResponse {
 type Phase = 'permission' | 'capture' | 'uploading' | 'recognizing' | 'review' | 'submitting';
 
 export function PhotoRegisterScreen({ navigation }: Props) {
-  const cameraRef = useRef<CameraView>(null);
-  const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef<Camera>(null);
+  const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
   const [phase, setPhase] = useState<Phase>('permission');
   const [previewUri, setPreviewUri] = useState<string | null>(null);
   const [recognition, setRecognition] = useState<RecognitionResponse | null>(null);
   const [photoIds, setPhotoIds] = useState<string[]>([]);
 
   useEffect(() => {
-    if (permission?.granted) setPhase((p) => (p === 'permission' ? 'capture' : p));
-  }, [permission?.granted]);
+    void (async () => {
+      const status = await getCameraPermissionsAsync();
+      setPermissionGranted(status.granted);
+      if (status.granted) setPhase('capture');
+    })();
+  }, []);
+
+  async function requestPermission(): Promise<void> {
+    const status = await requestCameraPermissionsAsync();
+    setPermissionGranted(status.granted);
+    if (status.granted) setPhase('capture');
+  }
 
   async function onCapture() {
     if (!cameraRef.current) return;
@@ -121,7 +131,7 @@ export function PhotoRegisterScreen({ navigation }: Props) {
     }
   }
 
-  if (!permission) {
+  if (permissionGranted === null) {
     return (
       <View style={styles.center}>
         <ActivityIndicator />
@@ -129,7 +139,7 @@ export function PhotoRegisterScreen({ navigation }: Props) {
     );
   }
 
-  if (!permission.granted) {
+  if (!permissionGranted) {
     return (
       <View style={styles.center}>
         <Text style={styles.title}>카메라 권한이 필요합니다</Text>
@@ -144,7 +154,7 @@ export function PhotoRegisterScreen({ navigation }: Props) {
   if (phase === 'capture') {
     return (
       <View style={styles.cameraContainer}>
-        <CameraView ref={cameraRef} style={StyleSheet.absoluteFillObject} facing="back" />
+        <Camera ref={cameraRef} style={StyleSheet.absoluteFillObject} type={'back' as never} />
         <View style={styles.overlay}>
           <View style={styles.guideBox} />
           <Text style={styles.hint}>명판이 가이드 박스 안에 들어오게 촬영하세요</Text>

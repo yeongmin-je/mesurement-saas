@@ -40,8 +40,8 @@ export class NotificationsController {
   }
 
   @Post('test')
-  async test(@CurrentUser() user: AuthenticatedUser): Promise<{ queued: number }> {
-    // Dev-only: trigger a one-off scan for the caller's tenant.
+  async test(): Promise<{ queued: number }> {
+    // Dev-only: trigger a one-off scan across all tenants.
     return this.notifications.scanAndQueue();
   }
 }
