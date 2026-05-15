@@ -1,0 +1,426 @@
+// MetroAI Prisma schema
+// Source of truth: docs/03_DATABASE_SCHEMA.sql (PostgreSQL 16, pg_trgm, uuid-ossp)
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions", "fullTextSearchPostgres"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [uuidOssp(map: "uuid-ossp"), pgTrgm(map: "pg_trgm")]
+}
+
+// ---------------------------------------------------------------------------
+// Tenants & Users
+// ---------------------------------------------------------------------------
+
+model Tenant {
+  id            String       @id @default(uuid()) @db.Uuid
+  name          String       @db.VarChar(200)
+  businessNo    String?      @map("business_no") @db.VarChar(20)
+  address       String?
+  logoUrl       String?      @map("logo_url")
+  plan          String       @default("free") @db.VarChar(20)
+  settings      Json         @default("{}")
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz()
+
+  users         User[]
+  departments   Department[]
+  instruments   Instrument[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  reports       Report[]
+
+  @@map("tenants")
+}
+
+model User {
+  id            String     @id @default(uuid()) @db.Uuid
+  tenantId      String     @map("tenant_id") @db.Uuid
+  email         String     @unique @db.VarChar(255)
+  passwordHash  String     @map("password_hash") @db.VarChar(255)
+  name          String     @db.VarChar(100)
+  phone         String?    @db.VarChar(20)
+  role          String     @default("operator") @db.VarChar(20)
+  emailVerified Boolean    @default(false) @map("email_verified")
+  lastLoginAt   DateTime?  @map("last_login_at") @db.Timestamptz()
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz()
+
+  tenant        Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  managedDepts  Department[] @relation("DepartmentManager")
+  custodianOf   Instrument[] @relation("InstrumentCustodian")
+  createdInstruments Instrument[] @relation("InstrumentCreator")
+  discardedInstruments Instrument[] @relation("InstrumentDiscarder")
+  uploadedPhotos InstrumentPhoto[]
+  movements     InstrumentMovement[]
+  notifications Notification[]
+  preferences   NotificationPreferences?
+  calibrationsCreated Calibration[]
+  repairsCreated Repair[]
+  auditLogs     AuditLog[]
+  reportsGenerated Report[]
+
+  @@index([tenantId])
+  @@index([email])
+  @@map("users")
+}
+
+model Department {
+  id        String     @id @default(uuid()) @db.Uuid
+  tenantId  String     @map("tenant_id") @db.Uuid
+  name      String     @db.VarChar(100)
+  managerId String?    @map("manager_id") @db.Uuid
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz()
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  manager     User?        @relation("DepartmentManager", fields: [managerId], references: [id])
+  instruments Instrument[]
+  movesFrom   InstrumentMovement[] @relation("MoveFromDept")
+  movesTo     InstrumentMovement[] @relation("MoveToDept")
+
+  @@unique([tenantId, name])
+  @@map("departments")
+}
+
+// ---------------------------------------------------------------------------
+// Master data
+// ---------------------------------------------------------------------------
+
+model KolasCategory {
+  id                  Int      @id @default(autoincrement())
+  majorCategory       String   @map("major_category") @db.VarChar(50)
+  subCategory         String   @map("sub_category") @db.VarChar(100)
+  description         String?
+  standardCycleMonths Int      @map("standard_cycle_months")
+  measureUnit         String?  @map("measure_unit") @db.VarChar(20)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  models      Model[]
+  instruments Instrument[]
+
+  @@index([majorCategory])
+  @@map("kolas_categories")
+}
+
+model Manufacturer {
+  id           Int      @id @default(autoincrement())
+  nameKo       String   @map("name_ko") @db.VarChar(100)
+  nameEn       String   @map("name_en") @db.VarChar(100)
+  aliases      String[] @db.Text
+  logoUrl      String?  @map("logo_url")
+  country      String?  @db.VarChar(50)
+  website      String?
+  categoryHint String?  @map("category_hint") @db.VarChar(50)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  models      Model[]
+  instruments Instrument[]
+
+  @@map("manufacturers")
+}
+
+model Model {
+  id                Int      @id @default(autoincrement())
+  manufacturerId    Int      @map("manufacturer_id")
+  kolasCategoryId   Int?     @map("kolas_category_id")
+  modelName         String   @map("model_name") @db.VarChar(100)
+  modelFamily       String?  @map("model_family") @db.VarChar(100)
+  measureRangeMin   Decimal? @map("measure_range_min") @db.Decimal(15, 6)
+  measureRangeMax   Decimal? @map("measure_range_max") @db.Decimal(15, 6)
+  measureUnit       String?  @map("measure_unit") @db.VarChar(20)
+  accuracyClass     String?  @map("accuracy_class") @db.VarChar(50)
+  specSheetUrl      String?  @map("spec_sheet_url")
+  imageUrl          String?  @map("image_url")
+  isVerified        Boolean  @default(false) @map("is_verified")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  manufacturer  Manufacturer   @relation(fields: [manufacturerId], references: [id])
+  kolasCategory KolasCategory? @relation(fields: [kolasCategoryId], references: [id])
+  instruments   Instrument[]
+
+  @@unique([manufacturerId, modelName])
+  @@index([manufacturerId])
+  @@index([kolasCategoryId])
+  @@map("models")
+}
+
+// ---------------------------------------------------------------------------
+// Instruments
+// ---------------------------------------------------------------------------
+
+model Instrument {
+  id                  String   @id @default(uuid()) @db.Uuid
+  tenantId            String   @map("tenant_id") @db.Uuid
+
+  assetCode           String   @map("asset_code") @db.VarChar(50)
+  serialNumber        String?  @map("serial_number") @db.VarChar(100)
+
+  kolasCategoryId     Int?     @map("kolas_category_id")
+  manufacturerId      Int?     @map("manufacturer_id")
+  modelId             Int?     @map("model_id")
+
+  categoryText        String?  @map("category_text") @db.VarChar(100)
+  manufacturerText    String?  @map("manufacturer_text") @db.VarChar(100)
+  modelText           String?  @map("model_text") @db.VarChar(100)
+
+  measureRangeMin     Decimal? @map("measure_range_min") @db.Decimal(15, 6)
+  measureRangeMax     Decimal? @map("measure_range_max") @db.Decimal(15, 6)
+  measureUnit         String?  @map("measure_unit") @db.VarChar(20)
+  accuracyClass       String?  @map("accuracy_class") @db.VarChar(50)
+
+  departmentId        String?  @map("department_id") @db.Uuid
+  location            String?  @db.VarChar(200)
+  custodianId         String?  @map("custodian_id") @db.Uuid
+  usageProcess        String?  @map("usage_process") @db.VarChar(200)
+
+  status              String   @default("active") @db.VarChar(30)
+  statusChangedAt     DateTime @default(now()) @map("status_changed_at") @db.Timestamptz()
+
+  acquiredAt          DateTime? @map("acquired_at") @db.Date
+  acquiredCost        Decimal?  @map("acquired_cost") @db.Decimal(15, 2)
+  warrantyUntil       DateTime? @map("warranty_until") @db.Date
+
+  cycleMonths         Int       @map("cycle_months")
+  cycleAdjusted       Boolean   @default(false) @map("cycle_adjusted")
+  cycleAdjustedReason String?   @map("cycle_adjusted_reason")
+  lastCalibrationAt   DateTime? @map("last_calibration_at") @db.Date
+  nextCalibrationAt   DateTime? @map("next_calibration_at") @db.Date
+
+  discardedAt         DateTime? @map("discarded_at") @db.Timestamptz()
+  discardedReason     String?   @map("discarded_reason")
+  discardedById       String?   @map("discarded_by") @db.Uuid
+
+  notes               String?
+  aiRecognition       Json?     @map("ai_recognition")
+  createdById         String?   @map("created_by") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  kolasCategory KolasCategory? @relation(fields: [kolasCategoryId], references: [id])
+  manufacturer  Manufacturer?  @relation(fields: [manufacturerId], references: [id])
+  model         Model?         @relation(fields: [modelId], references: [id])
+  department    Department?    @relation(fields: [departmentId], references: [id])
+  custodian     User?          @relation("InstrumentCustodian", fields: [custodianId], references: [id])
+  createdBy     User?          @relation("InstrumentCreator", fields: [createdById], references: [id])
+  discardedBy   User?          @relation("InstrumentDiscarder", fields: [discardedById], references: [id])
+
+  photos        InstrumentPhoto[]
+  movements     InstrumentMovement[]
+  calibrations  Calibration[]
+  repairs       Repair[]
+  notifications Notification[]
+
+  @@unique([tenantId, assetCode])
+  @@index([tenantId])
+  @@index([departmentId])
+  @@index([tenantId, status])
+  @@index([tenantId, serialNumber])
+  @@map("instruments")
+}
+
+model InstrumentPhoto {
+  id           String   @id @default(uuid()) @db.Uuid
+  instrumentId String   @map("instrument_id") @db.Uuid
+  s3Key        String   @map("s3_key") @db.VarChar(500)
+  isPrimary    Boolean  @default(false) @map("is_primary")
+  isNameplate  Boolean  @default(false) @map("is_nameplate")
+  uploadedById String?  @map("uploaded_by") @db.Uuid
+  uploadedAt   DateTime @default(now()) @map("uploaded_at") @db.Timestamptz()
+
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  uploadedBy User?      @relation(fields: [uploadedById], references: [id])
+
+  @@index([instrumentId])
+  @@map("instrument_photos")
+}
+
+model InstrumentMovement {
+  id               String   @id @default(uuid()) @db.Uuid
+  instrumentId     String   @map("instrument_id") @db.Uuid
+  fromDepartmentId String?  @map("from_department_id") @db.Uuid
+  toDepartmentId   String?  @map("to_department_id") @db.Uuid
+  fromLocation     String?  @map("from_location") @db.VarChar(200)
+  toLocation       String?  @map("to_location") @db.VarChar(200)
+  movedAt          DateTime @default(now()) @map("moved_at") @db.Timestamptz()
+  movedById        String?  @map("moved_by") @db.Uuid
+  reason           String?
+
+  instrument     Instrument  @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  fromDepartment Department? @relation("MoveFromDept", fields: [fromDepartmentId], references: [id])
+  toDepartment   Department? @relation("MoveToDept", fields: [toDepartmentId], references: [id])
+  movedBy        User?       @relation(fields: [movedById], references: [id])
+
+  @@index([instrumentId])
+  @@map("instrument_movements")
+}
+
+// ---------------------------------------------------------------------------
+// Calibrations & Repairs
+// ---------------------------------------------------------------------------
+
+model CalibrationOrg {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String?  @map("tenant_id") @db.Uuid
+  name         String   @db.VarChar(200)
+  isKolas      Boolean  @default(false) @map("is_kolas")
+  kolasNo      String?  @map("kolas_no") @db.VarChar(50)
+  contactPhone String?  @map("contact_phone") @db.VarChar(20)
+  contactEmail String?  @map("contact_email") @db.VarChar(255)
+  address      String?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  calibrations Calibration[]
+
+  @@map("calibration_orgs")
+}
+
+model Calibration {
+  id                 String   @id @default(uuid()) @db.Uuid
+  instrumentId       String   @map("instrument_id") @db.Uuid
+  performedAt        DateTime @map("performed_at") @db.Date
+  calibrationOrgId   String?  @map("calibration_org_id") @db.Uuid
+  calibrationOrgText String?  @map("calibration_org_text") @db.VarChar(200)
+  performedByName    String?  @map("performed_by_name") @db.VarChar(100)
+  asFoundData        Json?    @map("as_found_data")
+  asLeftData         Json?    @map("as_left_data")
+  uncertainty        Decimal? @db.Decimal(15, 8)
+  result             String?  @db.VarChar(20)
+  certificateNo      String?  @map("certificate_no") @db.VarChar(100)
+  certificateS3Key   String?  @map("certificate_s3_key") @db.VarChar(500)
+  cost               Decimal? @db.Decimal(15, 2)
+  notes              String?
+  createdById        String?  @map("created_by") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz()
+
+  instrument     Instrument      @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  calibrationOrg CalibrationOrg? @relation(fields: [calibrationOrgId], references: [id])
+  createdBy      User?           @relation(fields: [createdById], references: [id])
+
+  @@index([instrumentId])
+  @@index([performedAt])
+  @@map("calibrations")
+}
+
+model Repair {
+  id           String    @id @default(uuid()) @db.Uuid
+  instrumentId String    @map("instrument_id") @db.Uuid
+  reportedAt   DateTime  @map("reported_at") @db.Date
+  completedAt  DateTime? @map("completed_at") @db.Date
+  symptom      String?
+  actionTaken  String?   @map("action_taken")
+  cost         Decimal?  @db.Decimal(15, 2)
+  vendorName   String?   @map("vendor_name") @db.VarChar(200)
+  createdById  String?   @map("created_by") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  createdBy  User?      @relation(fields: [createdById], references: [id])
+
+  @@index([instrumentId])
+  @@map("repairs")
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+model NotificationTemplate {
+  id                String  @id @default(uuid()) @db.Uuid
+  code              String  @unique @db.VarChar(50)
+  channel           String  @db.VarChar(20)
+  titleTemplate     String? @map("title_template") @db.VarChar(200)
+  bodyTemplate      String? @map("body_template")
+  kakaoTemplateCode String? @map("kakao_template_code") @db.VarChar(50)
+  isActive          Boolean @default(true) @map("is_active")
+
+  @@map("notification_templates")
+}
+
+model Notification {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  userId        String?  @map("user_id") @db.Uuid
+  instrumentId  String?  @map("instrument_id") @db.Uuid
+  templateCode  String?  @map("template_code") @db.VarChar(50)
+  channel       String   @db.VarChar(20)
+  recipient     String?  @db.VarChar(255)
+  title         String?  @db.VarChar(200)
+  body          String?
+  status        String   @default("pending") @db.VarChar(20)
+  sentAt        DateTime? @map("sent_at") @db.Timestamptz()
+  errorMessage  String?  @map("error_message")
+  scheduledAt   DateTime @default(now()) @map("scheduled_at") @db.Timestamptz()
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user       User?       @relation(fields: [userId], references: [id])
+  instrument Instrument? @relation(fields: [instrumentId], references: [id])
+
+  @@index([tenantId])
+  @@index([userId])
+  @@map("notifications")
+}
+
+model NotificationPreferences {
+  userId          String   @id @map("user_id") @db.Uuid
+  pushEnabled     Boolean  @default(true) @map("push_enabled")
+  kakaoEnabled    Boolean  @default(true) @map("kakao_enabled")
+  smsEnabled      Boolean  @default(true) @map("sms_enabled")
+  emailEnabled    Boolean  @default(true) @map("email_enabled")
+  quietHoursStart DateTime? @map("quiet_hours_start") @db.Time()
+  quietHoursEnd   DateTime? @map("quiet_hours_end") @db.Time()
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
+}
+
+// ---------------------------------------------------------------------------
+// Audit & Reports
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String?  @map("tenant_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  entityType String   @map("entity_type") @db.VarChar(50)
+  entityId   String   @map("entity_id") @db.Uuid
+  action     String   @db.VarChar(20)
+  beforeData Json?    @map("before_data")
+  afterData  Json?    @map("after_data")
+  ipAddress  String?  @map("ip_address") @db.Inet
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  user   User?   @relation(fields: [userId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+model Report {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  reportType    String   @map("report_type") @db.VarChar(50)
+  title         String?  @db.VarChar(200)
+  parameters    Json?
+  s3Key         String?  @map("s3_key") @db.VarChar(500)
+  generatedById String?  @map("generated_by") @db.Uuid
+  generatedAt   DateTime @default(now()) @map("generated_at") @db.Timestamptz()
+
+  tenant      Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  generatedBy User?  @relation(fields: [generatedById], references: [id])
+
+  @@index([tenantId, generatedAt(sort: Desc)])
+  @@map("reports")
+}
