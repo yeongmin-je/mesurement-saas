@@ -8,6 +8,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { InstrumentsModule } from './modules/instruments/instruments.module';
 import { MasterModule } from './modules/master/master.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
+import { AiModule } from './modules/ai/ai.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     InstrumentsModule,
     MasterModule,
     UploadsModule,
+    AiModule,
   ],
 })
 export class AppModule {}
