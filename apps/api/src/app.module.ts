@@ -10,6 +10,7 @@ import { MasterModule } from './modules/master/master.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { AiModule } from './modules/ai/ai.module';
 import { CalibrationsModule } from './modules/calibrations/calibrations.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { CalibrationsModule } from './modules/calibrations/calibrations.module';
     UploadsModule,
     AiModule,
     CalibrationsModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}
