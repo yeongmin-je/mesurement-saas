@@ -11,6 +11,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { S3Service } from '../uploads/s3.service';
 import { CreateInstrumentDto } from './dto/create-instrument.dto';
 import { QueryInstrumentsDto } from './dto/query-instruments.dto';
+import { UpdateInstrumentDto } from './dto/update-instrument.dto';
+import { CreateMovementDto } from './dto/movement.dto';
 
 const DEFAULT_CYCLE_MONTHS = 12;
 
@@ -217,6 +219,104 @@ export class InstrumentsService {
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
+  }
+
+  async update(
+    tenantId: string,
+    id: string,
+    dto: UpdateInstrumentDto,
+  ): Promise<InstrumentDetail> {
+    const existing = await this.prisma.instrument.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new NotFoundException('측정기를 찾을 수 없습니다');
+
+    // If cycleMonths is adjusted, re-compute next calibration off lastCalibrationAt.
+    const nextCalibrationAt =
+      dto.cycleMonths != null && existing.lastCalibrationAt
+        ? computeNextCalibrationDate(existing.lastCalibrationAt, dto.cycleMonths)
+        : undefined;
+
+    await this.prisma.instrument.update({
+      where: { id },
+      data: {
+        serialNumber: dto.serialNumber,
+        kolasCategoryId: dto.kolasCategoryId,
+        manufacturerId: dto.manufacturerId,
+        modelId: dto.modelId,
+        categoryText: dto.categoryText,
+        manufacturerText: dto.manufacturerText,
+        modelText: dto.modelText,
+        measureRangeMin: dto.measureRangeMin,
+        measureRangeMax: dto.measureRangeMax,
+        measureUnit: dto.measureUnit,
+        accuracyClass: dto.accuracyClass,
+        departmentId: dto.departmentId,
+        location: dto.location,
+        custodianId: dto.custodianId,
+        acquiredAt: dto.acquiredAt ? new Date(dto.acquiredAt) : undefined,
+        acquiredCost: dto.acquiredCost,
+        cycleMonths: dto.cycleMonths,
+        cycleAdjusted: dto.cycleMonths != null ? true : undefined,
+        nextCalibrationAt,
+        notes: dto.notes,
+      },
+    });
+
+    return this.findById(tenantId, id);
+  }
+
+  async discard(
+    tenantId: string,
+    userId: string,
+    id: string,
+    reason: string,
+  ): Promise<{ status: 'discarded' }> {
+    const existing = await this.prisma.instrument.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new NotFoundException('측정기를 찾을 수 없습니다');
+
+    await this.prisma.instrument.update({
+      where: { id },
+      data: {
+        status: 'discarded',
+        statusChangedAt: new Date(),
+        discardedAt: new Date(),
+        discardedReason: reason,
+        discardedById: userId,
+      },
+    });
+    return { status: 'discarded' };
+  }
+
+  async createMovement(
+    tenantId: string,
+    userId: string,
+    id: string,
+    dto: CreateMovementDto,
+  ): Promise<unknown> {
+    const existing = await this.prisma.instrument.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new NotFoundException('측정기를 찾을 수 없습니다');
+
+    return this.prisma.$transaction(async (tx) => {
+      const movement = await tx.instrumentMovement.create({
+        data: {
+          instrumentId: id,
+          fromDepartmentId: existing.departmentId,
+          toDepartmentId: dto.toDepartmentId,
+          fromLocation: existing.location,
+          toLocation: dto.toLocation,
+          movedById: userId,
+          reason: dto.reason,
+        },
+      });
+
+      await tx.instrument.update({
+        where: { id },
+        data: {
+          departmentId: dto.toDepartmentId,
+          location: dto.toLocation,
+        },
+      });
+      return movement;
+    });
   }
 
   private async nextAssetCode(tenantId: string): Promise<string> {

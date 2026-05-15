@@ -11,6 +11,8 @@ import { UploadsModule } from './modules/uploads/uploads.module';
 import { AiModule } from './modules/ai/ai.module';
 import { CalibrationsModule } from './modules/calibrations/calibrations.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { DepartmentsModule } from './modules/departments/departments.module';
 
 @Module({
   imports: [
@@ -26,6 +28,8 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     AiModule,
     CalibrationsModule,
     NotificationsModule,
+    DashboardModule,
+    DepartmentsModule,
   ],
 })
 export class AppModule {}

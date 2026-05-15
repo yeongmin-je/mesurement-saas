@@ -1,9 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -17,6 +20,9 @@ import {
 import { InstrumentsService } from './instruments.service';
 import { CreateInstrumentDto } from './dto/create-instrument.dto';
 import { QueryInstrumentsDto } from './dto/query-instruments.dto';
+import { UpdateInstrumentDto } from './dto/update-instrument.dto';
+import { DiscardInstrumentDto } from './dto/discard-instrument.dto';
+import { CreateMovementDto } from './dto/movement.dto';
 
 @ApiTags('instruments')
 @ApiBearerAuth()
@@ -41,5 +47,33 @@ export class InstrumentsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.instruments.findById(user.tenantId, id);
+  }
+
+  @Patch(':id')
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateInstrumentDto,
+  ) {
+    return this.instruments.update(user.tenantId, id, dto);
+  }
+
+  @Delete(':id')
+  @HttpCode(200)
+  discard(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DiscardInstrumentDto,
+  ) {
+    return this.instruments.discard(user.tenantId, user.sub, id, dto.reason);
+  }
+
+  @Post(':id/movements')
+  move(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateMovementDto,
+  ) {
+    return this.instruments.createMovement(user.tenantId, user.sub, id, dto);
   }
 }
