@@ -8,6 +8,7 @@ import {
 } from '@metroai/utils';
 import type { InstrumentDetail, InstrumentSummary } from '@metroai/types';
 import { PrismaService } from '../../prisma/prisma.service';
+import { S3Service } from '../uploads/s3.service';
 import { CreateInstrumentDto } from './dto/create-instrument.dto';
 import { QueryInstrumentsDto } from './dto/query-instruments.dto';
 
@@ -15,7 +16,10 @@ const DEFAULT_CYCLE_MONTHS = 12;
 
 @Injectable()
 export class InstrumentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly s3: S3Service,
+  ) {}
 
   async list(
     tenantId: string,
@@ -61,24 +65,32 @@ export class InstrumentsService {
       this.prisma.instrument.count({ where }),
     ]);
 
-    const data: InstrumentSummary[] = rows.map((r) => ({
-      id: r.id,
-      assetCode: r.assetCode,
-      serialNumber: r.serialNumber,
-      model: r.model
-        ? {
-            id: r.model.id,
-            name: r.model.modelName,
-            manufacturer: r.model.manufacturer.nameKo,
-          }
-        : null,
-      category: r.kolasCategory?.subCategory ?? r.categoryText ?? null,
-      department: r.department?.name ?? null,
-      status: r.status as InstrumentSummary['status'],
-      nextCalibrationAt: r.nextCalibrationAt?.toISOString().slice(0, 10) ?? null,
-      calibrationStatus: classifyCalibrationStatus(r.nextCalibrationAt),
-      primaryPhotoUrl: null, // resolved later via S3 presign service
-    }));
+    const data: InstrumentSummary[] = await Promise.all(
+      rows.map(async (r): Promise<InstrumentSummary> => {
+        const primary = r.photos[0];
+        const primaryPhotoUrl = primary
+          ? await this.s3.getPresignedDownloadUrl(primary.s3Key).catch(() => null)
+          : null;
+        return {
+          id: r.id,
+          assetCode: r.assetCode,
+          serialNumber: r.serialNumber,
+          model: r.model
+            ? {
+                id: r.model.id,
+                name: r.model.modelName,
+                manufacturer: r.model.manufacturer.nameKo,
+              }
+            : null,
+          category: r.kolasCategory?.subCategory ?? r.categoryText ?? null,
+          department: r.department?.name ?? null,
+          status: r.status as InstrumentSummary['status'],
+          nextCalibrationAt: r.nextCalibrationAt?.toISOString().slice(0, 10) ?? null,
+          calibrationStatus: classifyCalibrationStatus(r.nextCalibrationAt),
+          primaryPhotoUrl,
+        };
+      }),
+    );
 
     return {
       data,
@@ -137,8 +149,9 @@ export class InstrumentsService {
     });
 
     if (dto.photoIds?.length) {
+      // Only attach photos that belong to the same tenant — prevents cross-tenant photo attachment.
       await this.prisma.instrumentPhoto.updateMany({
-        where: { id: { in: dto.photoIds } },
+        where: { id: { in: dto.photoIds }, tenantId },
         data: { instrumentId: created.id },
       });
     }
@@ -191,13 +204,15 @@ export class InstrumentsService {
       nextCalibrationAt: row.nextCalibrationAt?.toISOString().slice(0, 10) ?? null,
       daysUntilCalibration: row.nextCalibrationAt ? daysUntil(row.nextCalibrationAt) : null,
       calibrationStatus: classifyCalibrationStatus(row.nextCalibrationAt),
-      photos: row.photos.map((p) => ({
-        id: p.id,
-        url: '', // resolved via S3 presign service
-        isPrimary: p.isPrimary,
-        isNameplate: p.isNameplate,
-        uploadedAt: p.uploadedAt.toISOString(),
-      })),
+      photos: await Promise.all(
+        row.photos.map(async (p) => ({
+          id: p.id,
+          url: await this.s3.getPresignedDownloadUrl(p.s3Key).catch(() => ''),
+          isPrimary: p.isPrimary,
+          isNameplate: p.isNameplate,
+          uploadedAt: p.uploadedAt.toISOString(),
+        })),
+      ),
       notes: row.notes,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),

@@ -27,12 +27,13 @@ model Tenant {
   createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz()
 
-  users         User[]
-  departments   Department[]
-  instruments   Instrument[]
-  notifications Notification[]
-  auditLogs     AuditLog[]
-  reports       Report[]
+  users            User[]
+  departments      Department[]
+  instruments      Instrument[]
+  instrumentPhotos InstrumentPhoto[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  reports          Report[]
 
   @@map("tenants")
 }
@@ -225,17 +226,22 @@ model Instrument {
 
 model InstrumentPhoto {
   id           String   @id @default(uuid()) @db.Uuid
-  instrumentId String   @map("instrument_id") @db.Uuid
+  // Nullable: photos can be uploaded before instrument creation (AI recognition flow).
+  // Once the instrument is created/confirmed, instrumentId is set.
+  instrumentId String?  @map("instrument_id") @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
   s3Key        String   @map("s3_key") @db.VarChar(500)
   isPrimary    Boolean  @default(false) @map("is_primary")
   isNameplate  Boolean  @default(false) @map("is_nameplate")
   uploadedById String?  @map("uploaded_by") @db.Uuid
   uploadedAt   DateTime @default(now()) @map("uploaded_at") @db.Timestamptz()
 
-  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
-  uploadedBy User?      @relation(fields: [uploadedById], references: [id])
+  instrument Instrument? @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  uploadedBy User?       @relation(fields: [uploadedById], references: [id])
 
   @@index([instrumentId])
+  @@index([tenantId])
   @@map("instrument_photos")
 }
 
