@@ -6,10 +6,12 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 import type { AuthResponse } from '@metroai/types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { TokenDenylistService } from './token-denylist.service';
 
 const BCRYPT_ROUNDS = 12;
 
@@ -19,6 +21,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly cfg: ConfigService,
+    private readonly denylist: TokenDenylistService,
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthResponse> {
@@ -74,11 +77,21 @@ export class AuthService {
 
   async refresh(refreshToken: string): Promise<AuthResponse> {
     try {
-      const payload = await this.jwt.verifyAsync<{ sub: string }>(refreshToken, {
-        secret: this.cfg.getOrThrow<string>('JWT_REFRESH_SECRET'),
-      });
+      const payload = await this.jwt.verifyAsync<{ sub: string; jti?: string; exp?: number }>(
+        refreshToken,
+        { secret: this.cfg.getOrThrow<string>('JWT_REFRESH_SECRET') },
+      );
+      if (payload.jti && this.denylist.isRevoked(payload.jti)) {
+        throw new UnauthorizedException('리프레시 토큰이 폐기되었습니다');
+      }
       const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
       if (!user) throw new UnauthorizedException();
+
+      // Rotation: revoke the old refresh token so it can't be reused.
+      if (payload.jti && payload.exp) {
+        this.denylist.revoke(payload.jti, payload.exp * 1000);
+      }
+
       return this.issueTokens(user.id, user.tenantId, user.role, {
         id: user.id,
         email: user.email,
@@ -86,8 +99,23 @@ export class AuthService {
         role: user.role as 'admin' | 'manager' | 'operator',
         tenantId: user.tenantId,
       });
-    } catch {
+    } catch (err) {
+      if (err instanceof UnauthorizedException) throw err;
       throw new UnauthorizedException('리프레시 토큰이 유효하지 않습니다');
+    }
+  }
+
+  async logout(refreshToken: string | undefined): Promise<void> {
+    if (!refreshToken) return;
+    try {
+      const payload = await this.jwt.verifyAsync<{ jti?: string; exp?: number }>(refreshToken, {
+        secret: this.cfg.getOrThrow<string>('JWT_REFRESH_SECRET'),
+      });
+      if (payload.jti && payload.exp) {
+        this.denylist.revoke(payload.jti, payload.exp * 1000);
+      }
+    } catch {
+      // expired/invalid token — nothing to revoke, treat as success
     }
   }
 
@@ -99,10 +127,13 @@ export class AuthService {
   ): Promise<AuthResponse> {
     const payload = { sub: userId, tenantId, role };
     const accessToken = await this.jwt.signAsync(payload);
-    const refreshToken = await this.jwt.signAsync(payload, {
-      secret: this.cfg.getOrThrow<string>('JWT_REFRESH_SECRET'),
-      expiresIn: this.cfg.get<string>('JWT_REFRESH_EXPIRES_IN', '14d'),
-    });
+    const refreshToken = await this.jwt.signAsync(
+      { ...payload, jti: randomUUID() },
+      {
+        secret: this.cfg.getOrThrow<string>('JWT_REFRESH_SECRET'),
+        expiresIn: this.cfg.get<string>('JWT_REFRESH_EXPIRES_IN', '14d'),
+      },
+    );
     return { user, accessToken, refreshToken };
   }
 }

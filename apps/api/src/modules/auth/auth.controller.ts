@@ -30,8 +30,7 @@ export class AuthController {
 
   @Post('logout')
   @HttpCode(204)
-  logout(): void {
-    // Stateless JWT — client just discards. Refresh-token revocation
-    // (e.g. Redis denylist) lands in Week 2.
+  async logout(@Body() dto: Partial<RefreshDto>): Promise<void> {
+    await this.auth.logout(dto.refreshToken);
   }
 }
