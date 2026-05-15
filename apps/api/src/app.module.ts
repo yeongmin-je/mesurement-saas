@@ -13,6 +13,7 @@ import { CalibrationsModule } from './modules/calibrations/calibrations.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { DepartmentsModule } from './modules/departments/departments.module';
+import { ReportsModule } from './modules/reports/reports.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { DepartmentsModule } from './modules/departments/departments.module';
     NotificationsModule,
     DashboardModule,
     DepartmentsModule,
+    ReportsModule,
   ],
 })
 export class AppModule {}
