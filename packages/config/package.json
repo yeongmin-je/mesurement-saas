@@ -1,0 +1,7 @@
+{
+  "name": "@metroai/config",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./index.js",
+  "files": ["eslint-preset.js", "tailwind-preset.js", "tsconfig.base.json"]
+}

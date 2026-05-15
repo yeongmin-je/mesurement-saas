@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "MetroAI",
+    "slug": "metroai",
+    "scheme": "metroai",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "kr.metroai.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "측정기 명판 인식을 위해 카메라 권한이 필요합니다",
+        "NSPhotoLibraryUsageDescription": "측정기 사진을 첨부하기 위해 사진 권한이 필요합니다"
+      }
+    },
+    "android": {
+      "package": "kr.metroai.app",
+      "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE"]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "측정기 명판 인식을 위해 카메라 권한이 필요합니다"
+        }
+      ]
+    ],
+    "extra": {
+      "apiUrl": "http://localhost:3001/v1"
+    }
+  }
+}
