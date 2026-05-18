@@ -11,6 +11,8 @@ export class PdfService {
     if (!this.browserPromise) {
       this.browserPromise = puppeteer.launch({
         headless: true,
+        // In Alpine/Railway we install chromium via apk and point Puppeteer at it.
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--font-render-hinting=none'],
       });
     }
