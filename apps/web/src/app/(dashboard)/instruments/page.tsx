@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import type { InstrumentSummary, PaginatedResponse } from '@metroai/types';
@@ -18,9 +19,12 @@ export default function InstrumentsPage() {
           <h1 className="text-2xl font-bold">측정기</h1>
           <p className="text-sm text-slate-600">등록된 측정기 목록</p>
         </div>
-        <button className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
+        <Link
+          href="/instruments/new"
+          className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+        >
           + 측정기 등록
-        </button>
+        </Link>
       </header>
 
       {isLoading && <p className="text-sm text-slate-500">불러오는 중...</p>}
@@ -46,8 +50,12 @@ export default function InstrumentsPage() {
             </thead>
             <tbody className="divide-y divide-slate-200">
               {data.data.map((inst) => (
-                <tr key={inst.id}>
-                  <td className="px-4 py-3 font-medium">{inst.assetCode}</td>
+                <tr key={inst.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-medium">
+                    <Link href={`/instruments/${inst.id}`} className="text-brand-600 hover:underline">
+                      {inst.assetCode}
+                    </Link>
+                  </td>
                   <td className="px-4 py-3">
                     {inst.model ? `${inst.model.manufacturer} ${inst.model.name}` : '-'}
                   </td>

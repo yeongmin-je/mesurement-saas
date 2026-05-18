@@ -2,7 +2,15 @@
 
 > AI 계측기 관리 플랫폼 — 사진 한 장으로 측정기를 등록하고, KOLAS 표준주기로 교정 일정을 자동 관리하는 한국형 SaaS
 
-## 빠른 시작
+## 📱 폰에서 바로 테스트하기
+
+**프로토타입을 클라우드에 배포하고 폰 브라우저로 접속하는 가이드**: [DEPLOY.md](DEPLOY.md)
+
+- Vercel(웹, 무료) + Railway(API+DB+Redis, $5 크레딧) + Cloudflare R2(사진, 무료 10GB) + Anthropic(AI)
+- 소요 30~45분, 첫 달 무료
+- 폰에서 `https://your-app.vercel.app` 으로 접속
+
+## 빠른 시작 (로컬 개발)
 
 ```bash
 # 1. 의존성 설치

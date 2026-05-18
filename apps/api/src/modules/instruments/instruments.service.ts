@@ -8,14 +8,20 @@ import {
 } from '@metroai/utils';
 import type { InstrumentDetail, InstrumentSummary } from '@metroai/types';
 import { PrismaService } from '../../prisma/prisma.service';
+import { S3Service } from '../uploads/s3.service';
 import { CreateInstrumentDto } from './dto/create-instrument.dto';
 import { QueryInstrumentsDto } from './dto/query-instruments.dto';
+import { UpdateInstrumentDto } from './dto/update-instrument.dto';
+import { CreateMovementDto } from './dto/movement.dto';
 
 const DEFAULT_CYCLE_MONTHS = 12;
 
 @Injectable()
 export class InstrumentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly s3: S3Service,
+  ) {}
 
   async list(
     tenantId: string,
@@ -61,24 +67,32 @@ export class InstrumentsService {
       this.prisma.instrument.count({ where }),
     ]);
 
-    const data: InstrumentSummary[] = rows.map((r) => ({
-      id: r.id,
-      assetCode: r.assetCode,
-      serialNumber: r.serialNumber,
-      model: r.model
-        ? {
-            id: r.model.id,
-            name: r.model.modelName,
-            manufacturer: r.model.manufacturer.nameKo,
-          }
-        : null,
-      category: r.kolasCategory?.subCategory ?? r.categoryText ?? null,
-      department: r.department?.name ?? null,
-      status: r.status as InstrumentSummary['status'],
-      nextCalibrationAt: r.nextCalibrationAt?.toISOString().slice(0, 10) ?? null,
-      calibrationStatus: classifyCalibrationStatus(r.nextCalibrationAt),
-      primaryPhotoUrl: null, // resolved later via S3 presign service
-    }));
+    const data: InstrumentSummary[] = await Promise.all(
+      rows.map(async (r): Promise<InstrumentSummary> => {
+        const primary = r.photos[0];
+        const primaryPhotoUrl = primary
+          ? await this.s3.getPresignedDownloadUrl(primary.s3Key).catch(() => null)
+          : null;
+        return {
+          id: r.id,
+          assetCode: r.assetCode,
+          serialNumber: r.serialNumber,
+          model: r.model
+            ? {
+                id: r.model.id,
+                name: r.model.modelName,
+                manufacturer: r.model.manufacturer.nameKo,
+              }
+            : null,
+          category: r.kolasCategory?.subCategory ?? r.categoryText ?? null,
+          department: r.department?.name ?? null,
+          status: r.status as InstrumentSummary['status'],
+          nextCalibrationAt: r.nextCalibrationAt?.toISOString().slice(0, 10) ?? null,
+          calibrationStatus: classifyCalibrationStatus(r.nextCalibrationAt),
+          primaryPhotoUrl,
+        };
+      }),
+    );
 
     return {
       data,
@@ -137,8 +151,9 @@ export class InstrumentsService {
     });
 
     if (dto.photoIds?.length) {
+      // Only attach photos that belong to the same tenant — prevents cross-tenant photo attachment.
       await this.prisma.instrumentPhoto.updateMany({
-        where: { id: { in: dto.photoIds } },
+        where: { id: { in: dto.photoIds }, tenantId },
         data: { instrumentId: created.id },
       });
     }
@@ -191,17 +206,117 @@ export class InstrumentsService {
       nextCalibrationAt: row.nextCalibrationAt?.toISOString().slice(0, 10) ?? null,
       daysUntilCalibration: row.nextCalibrationAt ? daysUntil(row.nextCalibrationAt) : null,
       calibrationStatus: classifyCalibrationStatus(row.nextCalibrationAt),
-      photos: row.photos.map((p) => ({
-        id: p.id,
-        url: '', // resolved via S3 presign service
-        isPrimary: p.isPrimary,
-        isNameplate: p.isNameplate,
-        uploadedAt: p.uploadedAt.toISOString(),
-      })),
+      photos: await Promise.all(
+        row.photos.map(async (p) => ({
+          id: p.id,
+          url: await this.s3.getPresignedDownloadUrl(p.s3Key).catch(() => ''),
+          isPrimary: p.isPrimary,
+          isNameplate: p.isNameplate,
+          uploadedAt: p.uploadedAt.toISOString(),
+        })),
+      ),
       notes: row.notes,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
+  }
+
+  async update(
+    tenantId: string,
+    id: string,
+    dto: UpdateInstrumentDto,
+  ): Promise<InstrumentDetail> {
+    const existing = await this.prisma.instrument.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new NotFoundException('측정기를 찾을 수 없습니다');
+
+    // If cycleMonths is adjusted, re-compute next calibration off lastCalibrationAt.
+    const nextCalibrationAt =
+      dto.cycleMonths != null && existing.lastCalibrationAt
+        ? computeNextCalibrationDate(existing.lastCalibrationAt, dto.cycleMonths)
+        : undefined;
+
+    await this.prisma.instrument.update({
+      where: { id },
+      data: {
+        serialNumber: dto.serialNumber,
+        kolasCategoryId: dto.kolasCategoryId,
+        manufacturerId: dto.manufacturerId,
+        modelId: dto.modelId,
+        categoryText: dto.categoryText,
+        manufacturerText: dto.manufacturerText,
+        modelText: dto.modelText,
+        measureRangeMin: dto.measureRangeMin,
+        measureRangeMax: dto.measureRangeMax,
+        measureUnit: dto.measureUnit,
+        accuracyClass: dto.accuracyClass,
+        departmentId: dto.departmentId,
+        location: dto.location,
+        custodianId: dto.custodianId,
+        acquiredAt: dto.acquiredAt ? new Date(dto.acquiredAt) : undefined,
+        acquiredCost: dto.acquiredCost,
+        cycleMonths: dto.cycleMonths,
+        cycleAdjusted: dto.cycleMonths != null ? true : undefined,
+        nextCalibrationAt,
+        notes: dto.notes,
+      },
+    });
+
+    return this.findById(tenantId, id);
+  }
+
+  async discard(
+    tenantId: string,
+    userId: string,
+    id: string,
+    reason: string,
+  ): Promise<{ status: 'discarded' }> {
+    const existing = await this.prisma.instrument.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new NotFoundException('측정기를 찾을 수 없습니다');
+
+    await this.prisma.instrument.update({
+      where: { id },
+      data: {
+        status: 'discarded',
+        statusChangedAt: new Date(),
+        discardedAt: new Date(),
+        discardedReason: reason,
+        discardedById: userId,
+      },
+    });
+    return { status: 'discarded' };
+  }
+
+  async createMovement(
+    tenantId: string,
+    userId: string,
+    id: string,
+    dto: CreateMovementDto,
+  ): Promise<unknown> {
+    const existing = await this.prisma.instrument.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new NotFoundException('측정기를 찾을 수 없습니다');
+
+    return this.prisma.$transaction(async (tx) => {
+      const movement = await tx.instrumentMovement.create({
+        data: {
+          instrumentId: id,
+          fromDepartmentId: existing.departmentId,
+          toDepartmentId: dto.toDepartmentId,
+          fromLocation: existing.location,
+          toLocation: dto.toLocation,
+          movedById: userId,
+          reason: dto.reason,
+        },
+      });
+
+      await tx.instrument.update({
+        where: { id },
+        data: {
+          departmentId: dto.toDepartmentId,
+          location: dto.toLocation,
+        },
+      });
+      return movement;
+    });
   }
 
   private async nextAssetCode(tenantId: string): Promise<string> {

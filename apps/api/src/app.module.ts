@@ -7,6 +7,13 @@ import { HealthModule } from './modules/health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { InstrumentsModule } from './modules/instruments/instruments.module';
 import { MasterModule } from './modules/master/master.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
+import { AiModule } from './modules/ai/ai.module';
+import { CalibrationsModule } from './modules/calibrations/calibrations.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { DepartmentsModule } from './modules/departments/departments.module';
+import { ReportsModule } from './modules/reports/reports.module';
 
 @Module({
   imports: [
@@ -18,6 +25,13 @@ import { MasterModule } from './modules/master/master.module';
     AuthModule,
     InstrumentsModule,
     MasterModule,
+    UploadsModule,
+    AiModule,
+    CalibrationsModule,
+    NotificationsModule,
+    DashboardModule,
+    DepartmentsModule,
+    ReportsModule,
   ],
 })
 export class AppModule {}

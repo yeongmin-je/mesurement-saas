@@ -20,12 +20,14 @@ async function bootstrap(): Promise<void> {
     }),
   );
   app.useGlobalFilters(new GlobalExceptionFilter());
-  app.enableCors({
-    origin: process.env.APP_URL ?? 'http://localhost:3000',
-    credentials: true,
-  });
 
-  if (process.env.NODE_ENV !== 'production') {
+  // CORS_ORIGINS supports comma-separated origins for prod (Vercel + custom domain).
+  const corsOrigins = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
+    : [process.env.APP_URL ?? 'http://localhost:3000'];
+  app.enableCors({ origin: corsOrigins, credentials: true });
+
+  if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_SWAGGER === 'true') {
     const config = new DocumentBuilder()
       .setTitle('MetroAI API')
       .setDescription('AI 계측기 관리 플랫폼 REST API')
@@ -36,9 +38,10 @@ async function bootstrap(): Promise<void> {
     SwaggerModule.setup('v1/docs', app, doc);
   }
 
+  // Cloud runtimes (Railway, Render, Fly) inject PORT and require binding to 0.0.0.0.
   const port = Number(process.env.PORT ?? 3001);
-  await app.listen(port);
-  Logger.log(`MetroAI API listening on http://localhost:${port}/v1`, 'Bootstrap');
+  await app.listen(port, '0.0.0.0');
+  Logger.log(`MetroAI API listening on port ${port}`, 'Bootstrap');
 }
 
 bootstrap().catch((err) => {

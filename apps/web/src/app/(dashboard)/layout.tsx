@@ -1,9 +1,10 @@
 import Link from 'next/link';
-import { Gauge, Boxes, CalendarClock, Bell, FileBarChart, Settings } from 'lucide-react';
+import { Gauge, Boxes, CalendarClock, Calendar, Bell, FileBarChart, Settings } from 'lucide-react';
 
 const NAV = [
   { href: '/dashboard', label: '대시보드', icon: Gauge },
   { href: '/instruments', label: '측정기', icon: Boxes },
+  { href: '/calendar', label: '캘린더', icon: Calendar },
   { href: '/calibrations', label: '교정 이력', icon: CalendarClock },
   { href: '/notifications', label: '알림', icon: Bell },
   { href: '/reports', label: '보고서', icon: FileBarChart },
